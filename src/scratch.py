@@ -88,9 +88,7 @@ class Logger:
 class PID:
 
     def __init__(self, tuning, setpoint: float, initial_input=0, limits=(14, 100)):
-        # these are the tuning variables for the PID
         self.tuning = tuning
-
         self.limits = limits
 
         # variables for holding the state
@@ -174,6 +172,8 @@ class Robot:
         self.wheel_size = wheel_size
         self.attachment_motor_ports = attachment_motor_ports
         self.sensor_ports = sensor_ports
+
+        self.pids = {}
 
         # Robot will store any other key-value-pairs passed in
         for k, v in kwargs.items():
@@ -277,15 +277,46 @@ class Robot:
 
         return pid
 
-    async def drive_straight_distance(self, distance_cm, direction="forward", power=40):
-        pass
+    def create_pid(self, label, initial_input, setpoint, tuning, limits):
+        pid = PID(tuning, setpoint, initial_input, limits)
+        self.pids[label] = pid
+        return pid
 
-    async def drive_straight(self, distance_cm, direction="forward", power=40):
+    async def drive_straight_distance(
+        self, distance_cm, direction="forward", power=40, acceleration=500
+    ):
+        target = cm_to_degress(distance_cm, self.wheel_size)
+        motor.reset_relative_position(self.left_drive_motor, 0)
+
+        def terminator():
+            distance_traveled = abs(motor.relative_position(port.A))
+
+            if distance_traveled > target:
+                return True
+            else:
+                return False
+
+        await robot.drive_straight(
+            distance_cm,
+            direction=direction,
+            terminator=terminator,
+            power=power,
+            acceleration=acceleration,
+        )
+
+    async def drive_straight(
+        self,
+        distance_cm,
+        direction="forward",
+        power=40,
+        terminator=None,
+        acceleration=1000,
+    ):
         Logger.debug("Starting yaw == {}".format(self.yawstr()))
-        pid = self.pid_drive_straight(0)
+        pid = self.create_pid("drive_straight", 0, 0, (0.1, 0, 0), (-100, 100))
         velocity = calculate_velocity(power / 100, self.drive_motor_size)
         await self.reset_yaw()
-        motor.reset_relative_position(self.left_drive_motor, 0)
+        # motor.reset_relative_position(self.left_drive_motor, 0)
 
         # elsewhere, sensors are reporting decidegrees
         target_degrees = cm_to_degress(distance_cm, self.wheel_size)
@@ -298,12 +329,18 @@ class Robot:
         def reached_destination():
             yaw = self.yaw()
             steering = pid.compute(yaw) * sign
-            motor_pair.move(self.drive_motor_pair, int(steering), velocity=velocity)
-            distance_traveled = abs(motor.relative_position(self.left_drive_motor))
-            if distance_traveled >= target_degrees:  # measured in decidegrees
-                return True
-            else:
-                return False
+            motor_pair.move(
+                self.drive_motor_pair,
+                int(steering),
+                velocity=velocity,
+                acceleration=acceleration,
+            )
+            # distance_traveled = abs(motor.relative_position(self.left_drive_motor))
+            # if distance_traveled >= target_degrees:# measured in decidegrees
+            #     return True
+            # else:
+            #     return False
+            return terminator()
 
         # wait until target angle is reached, then stop the motor pair
         await runloop.until(reached_destination)
@@ -371,9 +408,9 @@ async def step2():
 
 async def step3():
     print("Step 3: Drive Straight")
-    distance = 90
-    await robot.drive_straight(distance)
-    await robot.drive_straight(distance, direction="backward")
+    distance = 30
+    await robot.drive_straight_distance(distance, direction="forward")
+    await robot.drive_straight_distance(distance, direction="backward", power=100)
 
 
 async def step4():
