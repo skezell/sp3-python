@@ -12,10 +12,7 @@ class CONSTANTS:
     MOTOR_SPEED_MAPPINGS = {MOTOR_SIZE_MED: 660}
     WHEEL_SIZE_SM = "sm"
     WHEEL_SIZE_LG = "lg"
-    WHEEL_DIAMETER_MAPPINGS = {WHEEL_SIZE_SM: 17.5}
-    TURN_LEFT = "left"
-    TURN_RIGHT = "right"
-    VALID_TURN_DIRECTIONS = [TURN_LEFT, TURN_RIGHT]
+    WHEEL_CIRCUM_MAPPINGS = {WHEEL_SIZE_SM: 17.5, WHEEL_SIZE_LG: 27.6}
 
 
 class Logger:
@@ -150,8 +147,9 @@ def calculate_velocity(percentage=0.75, motor_size=CONSTANTS.MOTOR_SIZE_MED):
 
 
 def cm_to_degress(cm, wheel_size):
-    diameter = CONSTANTS.WHEEL_DIAMETER_MAPPINGS.get(wheel_size, 0)
-    return int(360 / diameter * cm)
+    circumference = CONSTANTS.WHEEL_CIRCUM_MAPPINGS.get(wheel_size, 0)
+    print("cm to degrees {}".format(360 / circumference * cm))
+    return 360 / circumference * cm
 
 
 # -------------------------------------------- ROBOT CLASSES --------------------------------------------
@@ -214,7 +212,7 @@ class Robot:
             msg = "Invalid target angle {}".format(target_angle)
             raise ValueError(msg)
 
-    async def tank_turn_alt(
+    async def tank_turn(
         self, target_angle, direction="right", starting_power=40, pid_controller=None
     ):
         # only 0 - 180 is currently supported
@@ -242,11 +240,7 @@ class Robot:
         # create a callback that will terminate the loop when the angle is reached
         def reached_target_yaw():
             yaw = Robot.yaw()
-            error = target_angle - abs(yaw)
-
             controller_output = pid_controller.compute(yaw)
-            # Logger.print_new_value("controller_output == ", controller_output)
-            # Logger.print_new_value("error == ", error)
 
             # we need to convert the power value to a velocity, which is what the move_tank
             # method needs
@@ -262,6 +256,7 @@ class Robot:
         motor_pair.stop(self.drive_motor_pair, stop=motor.HOLD)
         Logger.debug("Ending yaw == " + self.yawstr())
 
+    # TODO: tune the 2nd & 3rd parameters ?
     def pid_turning(self, setpoint, upper_limit=40):
         # convenience method to create a pid for the tank turn maneuver
         # robots that inherit from this class may want to override this method
@@ -272,12 +267,56 @@ class Robot:
 
         return pid
 
+    def pid_drive_straight(self, setpoint, lower_limit=-100, upper_limit=100):
+        # convenience method to create a pid for the drive straight method
+        # robots that inherit from this class may want to override this method
+        # to provide different tuning data
+        tuning = (0.1, 0, 0)
+        limits = (-100, 100)
+        pid = PID(tuning, setpoint, initial_input=0, limits=limits)
+
+        return pid
+
+    async def drive_straight_distance(self, distance_cm, direction="forward", power=40):
+        pass
+
+    async def drive_straight(self, distance_cm, direction="forward", power=40):
+        Logger.debug("Starting yaw == {}".format(self.yawstr()))
+        pid = self.pid_drive_straight(0)
+        velocity = calculate_velocity(power / 100, self.drive_motor_size)
+        await self.reset_yaw()
+        motor.reset_relative_position(self.left_drive_motor, 0)
+
+        # elsewhere, sensors are reporting decidegrees
+        target_degrees = cm_to_degress(distance_cm, self.wheel_size)
+        # TODO: change this to a validation function
+        velocity = abs(velocity) if direction == "forward" else abs(velocity) * -1
+
+        # for some reason the `steering` numbers are the opposite sign as the yaw numbers :head-shake:
+        sign = -1 if direction == "forward" else 1
+
+        def reached_destination():
+            yaw = self.yaw()
+            steering = pid.compute(yaw) * sign
+            motor_pair.move(self.drive_motor_pair, int(steering), velocity=velocity)
+            distance_traveled = abs(motor.relative_position(self.left_drive_motor))
+            if distance_traveled >= target_degrees:  # measured in decidegrees
+                return True
+            else:
+                return False
+
+        # wait until target angle is reached, then stop the motor pair
+        await runloop.until(reached_destination)
+        motor_pair.stop(self.drive_motor_pair)
+
+        Logger.debug("Ending yaw == {}".format(self.yawstr()))
+
     @staticmethod
     async def reset_yaw(angle=0):
         await runloop.until(motion_sensor.stable)
         motion_sensor.reset_yaw(0)
         # wait a small amount for the code to finish running before using gyro
-        time.sleep_ms(10)
+        time.sleep_ms(50)
 
     @staticmethod
     def yaw():
@@ -325,23 +364,20 @@ async def step1():
 
 async def step2():
     print("Step 2: Turning")
-    # await robot.tank_turn_alt(20, direction="right", starting_power=25)
-    await robot.tank_turn_alt(90, direction="left", starting_power=40)
-    # await robot.tank_turn_alt(181, direction="right", starting_power=40)
-    # print("between " + MyRobot.yawstr())
-    # await robot.tank_turn(90, direction="right", percentage=100)
+    await robot.tank_turn(20, direction="right", starting_power=25)
+    await robot.tank_turn(90, direction="left", starting_power=40)
+    # await robot.tank_turn(181, direction="right", starting_power=40)
 
 
 async def step3():
-    print("step3")
-    # await robot.drive_straight_cm(10)
+    print("Step 3: Drive Straight")
+    distance = 90
+    await robot.drive_straight(distance)
+    await robot.drive_straight(distance, direction="backward")
 
 
 async def step4():
-    angles = [0, 45, 90, 135, 180, 225, 170, 315, 360]
-    for angle in angles:
-        true_angle = await robot.tank_turn_suzanne_way(angle)
-        print((angle, true_angle))
+    pass
 
 
 async def end_program():
@@ -353,7 +389,7 @@ async def end_program():
 
 # ---------------------------------------------- SEQUENCES ----------------------------------------------
 everything = [main(), step1(), end_program()]
-steps = [step2()]
+steps = [step3()]
 test = [step2()]
 
 # ------------------------------------------------- RUN! -------------------------------------------------
