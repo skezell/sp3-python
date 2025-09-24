@@ -1,0 +1,10 @@
+autorun_slot: 0
+disconnect_at_completion: False
+slots:
+  -
+    number: 0
+    file: ./src/scratch.py
+    auto-run: True
+  -
+    number: 1
+    file: ./src/main_robot.py

@@ -1,0 +1,18 @@
+[project]
+name = "sp3python"
+version = "0.0.1"
+authors = [
+  { name="Suzanne Ezell", email="mama3.ezell@gmail.com" },
+]
+description = "Spike Prime v3. python code - examples, ideas &amp; experiments"
+readme = "README.md"
+requires-python = ">=3.12"
+#classifiers = [
+#    "Programming Language :: Python :: 3",
+#    "License :: OSI Approved :: MIT License",
+#    "Operating System :: OS Independent",
+#]
+
+#[project.urls]
+#Homepage = "https://github.com/pypa/sampleproject"
+#Issues = "https://github.com/pypa/sampleproject/issues"

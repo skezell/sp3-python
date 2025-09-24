@@ -1,3 +1,10 @@
+# OSX Cruft that we don't want to include
+.DS_Store
+
+# IDE Files
+.idea
+.vscode
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
